@@ -1,0 +1,26 @@
+# Input data
+sample_name: HG03714
+
+fastq_1: data/raw/SRR789974_1.fastq.gz
+fastq_2: data/raw/SRR789974_2.fastq.gz
+
+# Reference genome
+reference: data/reference/chr22.fa
+
+# Output directories
+qc_dir: results/qc
+alignment_dir: results/alignment
+variants_dir: results/variants
+annotation_dir: results/annotation
+reports_dir: results/reports
+
+# Tools
+bwa_threads: 4
+samtools_threads: 4
+
+# Variant calling parameters
+min_quality: 20
+min_depth: 10
+
+# Annotation
+snpeff_db: GRCh38.86
