@@ -1,0 +1,36 @@
+name: ngs_pipeline_env
+
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - python=3.10
+
+  # QC
+  - fastqc=0.12.1
+
+  # Alignment
+  - bwa=0.7.17
+
+  # BAM processing
+  - samtools=1.19
+
+  # Variant calling
+  - bcftools=1.19
+
+  # Annotation
+  - snpeff=5.2
+
+  # Interval / genome utilities
+  - bedtools=2.31.1
+
+  # Compression / helpers
+  - pigz
+  - unzip
+  - wget
+
+  # Optional but useful for pipeline scripting/log parsing
+  - pandas
+  - pyyaml
