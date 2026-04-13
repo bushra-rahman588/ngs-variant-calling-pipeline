@@ -1,5 +1,6 @@
 # Input data
 sample_name: HG03714
+srr_id: SRR789974
 
 fastq_1: data/raw/SRR789974_1.fastq.gz
 fastq_2: data/raw/SRR789974_2.fastq.gz
