@@ -57,18 +57,26 @@ else
 fi
 
 conda activate ngs_pipeline_env
-
 ############################
-# STEP 2: DOWNLOAD FASTQ
+# STEP 2: DOWNLOAD FASTQ (FIXED)
 ############################
 
 log "STEP 2: Downloading FASTQ files"
 
 cd data/raw
 
-if [[ ! -f SRR789974_1.fastq.gz || ! -f SRR789974_2.fastq.gz ]]; then
-    wget -c ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR789/SRR789974/SRR789974_1.fastq.gz
-    wget -c ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR789/SRR789974/SRR789974_2.fastq.gz
+SRR="SRR789974"
+
+if [[ ! -f ${SRR}_1.fastq.gz || ! -f ${SRR}_2.fastq.gz ]]; then
+
+    log "Using stable HTTPS download (no FTP)"
+
+    wget -c --tries=10 --timeout=30 \
+    https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR789/SRR789974/SRR789974_1.fastq.gz
+
+    wget -c --tries=10 --timeout=30 \
+    https://ftp.sra.ebi.ac.uk/vol1/fastq/SRR789/SRR789974/SRR789974_2.fastq.gz
+
 else
     log "FASTQ files already exist"
 fi
