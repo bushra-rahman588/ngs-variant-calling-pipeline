@@ -140,17 +140,6 @@ results/reports/      → Summary files
 
 ---
 
-## Logging
-
-```text
-logs/pipeline.log
-```
-
-Contains:
-- step-wise execution  
-- errors  
-- runtime tracking  
-
 ---
 
 ## Features
