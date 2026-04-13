@@ -1,1 +1,194 @@
+#!/bin/bash
+set -e
+
+############################
+# CONFIG + LOGGING
+############################
+
+CONFIG=config/config.yaml
+
+fastq_1=$(grep 'fastq_1:' $CONFIG | awk '{print $2}')
+fastq_2=$(grep 'fastq_2:' $CONFIG | awk '{print $2}')
+reference=$(grep 'reference:' $CONFIG | awk '{print $2}')
+
+mkdir -p logs
+LOG_FILE="logs/pipeline.log"
+
+exec > >(tee -a $LOG_FILE) 2>&1
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+}
+
+############################
+# SETUP DIRECTORIES
+############################
+
+mkdir -p data/raw data/reference
+mkdir -p results/{qc,alignment,variants,annotation,reports}
+
+############################
+# STEP 0: SETUP CONDA
+############################
+
+log "STEP 0: Setting up conda environment"
+
+source $(conda info --base)/etc/profile.d/conda.sh
+
+if ! conda env list | grep -q "ngs_pipeline_env"; then
+    log "Creating conda environment"
+    conda create -y -n ngs_pipeline_env \
+        fastqc bwa samtools bcftools wget
+fi
+
+conda activate ngs_pipeline_env
+
+conda install -y -c bioconda snpeff bedtools breakdancer
+
+############################
+# STEP 1: DOWNLOAD FASTQ
+############################
+
+log "STEP 1: Downloading FASTQ files"
+
+cd data/raw
+
+if [[ ! -f SRR789974_1.fastq.gz || ! -f SRR789974_2.fastq.gz ]]; then
+    wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR789/SRR789974/SRR789974_1.fastq.gz
+    wget ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR789/SRR789974/SRR789974_2.fastq.gz
+else
+    log "FASTQ already exists"
+fi
+
+cd ../../
+
+############################
+# STEP 2: QUALITY CONTROL
+############################
+
+log "STEP 2: Running FastQC"
+
+fastqc $fastq_1 $fastq_2 -o results/qc/
+
+############################
+# STEP 3: REFERENCE GENOME
+############################
+
+log "STEP 3: Preparing reference genome"
+
+cd data/reference
+
+if [[ ! -f chr22.fa ]]; then
+    wget -c http://hgdownload.soe.ucsc.edu/goldenPath/hg38/chromosomes/chr22.fa.gz
+    gunzip -f chr22.fa.gz
+fi
+
+cd ../../
+
+############################
+# STEP 4: INDEX REFERENCE
+############################
+
+log "STEP 4: Indexing reference"
+
+bwa index $reference
+
+############################
+# STEP 5: ALIGNMENT
+############################
+
+log "STEP 5: Alignment with BWA"
+
+bwa mem $reference $fastq_1 $fastq_2 > results/alignment/aligned.sam
+
+############################
+# STEP 6: SAM → BAM
+############################
+
+log "STEP 6: Processing BAM"
+
+samtools view -Sb results/alignment/aligned.sam > results/alignment/aligned.bam
+samtools sort results/alignment/aligned.bam -o results/alignment/sorted.bam
+samtools index results/alignment/sorted.bam
+
+rm results/alignment/aligned.sam results/alignment/aligned.bam
+
+############################
+# STEP 7: VARIANT CALLING
+############################
+
+log "STEP 7: Variant calling"
+
+bcftools mpileup -f $reference results/alignment/sorted.bam | \
+bcftools call -mv -o results/variants/variants.vcf
+
+############################
+# STEP 8: FILTER VARIANTS
+############################
+
+log "STEP 8: Filtering variants"
+
+bcftools filter -i 'QUAL>20' results/variants/variants.vcf \
+    -Oz -o results/variants/filtered.vcf.gz
+
+bcftools index results/variants/filtered.vcf.gz
+
+############################
+# STEP 9: MUTATION ANALYSIS
+############################
+
+log "STEP 9: Mutation analysis"
+
+bcftools view results/variants/filtered.vcf.gz | grep -v "^#" | \
+cut -f4,5 | sort | uniq -c > results/reports/mutation_types.txt
+
+awk '{print $2"→"$3, $1}' results/reports/mutation_types.txt \
+> results/reports/formatted_mutations.txt
+
+bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\n' \
+results/variants/filtered.vcf.gz > results/reports/variants_table.txt
+
+############################
+# STEP 10: SNP + INDEL
+############################
+
+log "STEP 10: SNP and INDEL separation"
+
+bcftools view -v snps results/variants/filtered.vcf.gz \
+> results/variants/snps.vcf
+
+bcftools view -v indels results/variants/filtered.vcf.gz \
+> results/variants/indels.vcf
+
+############################
+# STEP 11: ANNOTATION
+############################
+
+log "STEP 11: Annotation with snpEff"
+
+SNPEFF_JAR=$(ls $CONDA_PREFIX/share/snpeff*/snpEff.jar | head -n 1)
+
+java -Xmx4g -jar $SNPEFF_JAR GRCh38.86 \
+results/variants/filtered.vcf.gz > results/annotation/annotated.vcf
+
+############################
+# STEP 12: SUMMARY
+############################
+
+log "STEP 12: Generating summary"
+
+echo "Missense: $(grep -c missense_variant results/annotation/annotated.vcf)" \
+> results/reports/final_summary.txt
+
+echo "Synonymous: $(grep -c synonymous_variant results/annotation/annotated.vcf)" \
+>> results/reports/final_summary.txt
+
+echo "Intergenic: $(grep -c intergenic_region results/annotation/annotated.vcf)" \
+>> results/reports/final_summary.txt
+
+############################
+# DONE
+############################
+
+log "Pipeline completed successfully"
 
