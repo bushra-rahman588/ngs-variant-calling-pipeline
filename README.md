@@ -38,7 +38,7 @@ FASTQ → QC → Alignment → BAM → Variant Calling → Filtering → Annotat
 
 ```
 ngs-variant-calling-pipeline/
-│── scripts/
+│── Scripts/
 │   └── run_pipeline.sh
 │── config/
 │   └── config.yaml
