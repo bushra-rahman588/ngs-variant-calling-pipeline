@@ -109,13 +109,13 @@ snpeff_db: GRCh38.86
 Make script executable:
 
 ```bash
-chmod +x scripts/run_pipeline.sh
+chmod +x Scripts/run_pipeline.sh
 ```
 
 Run:
 
 ```bash
-./scripts/run_pipeline.sh
+./Scripts/run_pipeline.sh
 ```
 
 ---
