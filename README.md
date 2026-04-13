@@ -46,6 +46,7 @@ ngs-variant-calling-pipeline/
 │   ├── raw/
 │   └── reference/
 │── results/
+│── environment.yml
 │── .gitignore
 │── README.md
 ```
