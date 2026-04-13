@@ -7,10 +7,6 @@ set -e
 
 CONFIG="config/config.yaml"
 
-fastq_1=$(grep 'fastq_1:' "$CONFIG" | awk '{print $2}')
-fastq_2=$(grep 'fastq_2:' "$CONFIG" | awk '{print $2}')
-reference=$(grep 'reference:' "$CONFIG" | awk '{print $2}')
-
 mkdir -p logs
 LOG_FILE="logs/pipeline.log"
 
@@ -28,15 +24,33 @@ mkdir -p data/raw data/reference
 mkdir -p results/{qc,alignment,variants,annotation,reports}
 
 ############################
-# STEP 0: CONDA ENV SETUP
+# STEP 0: READ CONFIG (SAFE YAML PARSING)
 ############################
 
-log "STEP 0: Setting up conda environment from environment.yml"
+log "STEP 0: Reading configuration file"
+
+eval "$(python3 - <<EOF
+import yaml
+
+with open("$CONFIG") as f:
+    config = yaml.safe_load(f)
+
+print(f'fastq_1="{config["fastq_1"]}"')
+print(f'fastq_2="{config["fastq_2"]}"')
+print(f'reference="{config["reference"]}"')
+EOF
+)"
+
+############################
+# STEP 1: CONDA ENV SETUP
+############################
+
+log "STEP 1: Setting up conda environment"
 
 source "$(conda info --base)/etc/profile.d/conda.sh"
 
 if ! conda env list | grep -q "ngs_pipeline_env"; then
-    log "Creating conda environment..."
+    log "Creating conda environment from environment.yml"
     conda env create -f environment.yml
 else
     log "Environment already exists"
@@ -45,10 +59,10 @@ fi
 conda activate ngs_pipeline_env
 
 ############################
-# STEP 1: DOWNLOAD FASTQ
+# STEP 2: DOWNLOAD FASTQ
 ############################
 
-log "STEP 1: Downloading FASTQ files"
+log "STEP 2: Downloading FASTQ files"
 
 cd data/raw
 
@@ -62,18 +76,18 @@ fi
 cd ../../
 
 ############################
-# STEP 2: QUALITY CONTROL
+# STEP 3: QUALITY CONTROL
 ############################
 
-log "STEP 2: Running FastQC"
+log "STEP 3: FastQC"
 
 fastqc "$fastq_1" "$fastq_2" -o results/qc/
 
 ############################
-# STEP 3: REFERENCE GENOME
+# STEP 4: REFERENCE GENOME
 ############################
 
-log "STEP 3: Preparing reference genome"
+log "STEP 4: Preparing reference genome"
 
 cd data/reference
 
@@ -85,26 +99,26 @@ fi
 cd ../../
 
 ############################
-# STEP 4: INDEX REFERENCE
+# STEP 5: INDEX REFERENCE
 ############################
 
-log "STEP 4: Indexing reference genome"
+log "STEP 5: Indexing reference genome"
 
 bwa index "$reference"
 
 ############################
-# STEP 5: ALIGNMENT
+# STEP 6: ALIGNMENT
 ############################
 
-log "STEP 5: Running BWA alignment"
+log "STEP 6: Alignment with BWA"
 
 bwa mem "$reference" "$fastq_1" "$fastq_2" > results/alignment/aligned.sam
 
 ############################
-# STEP 6: SAM → BAM PROCESSING
+# STEP 7: BAM PROCESSING
 ############################
 
-log "STEP 6: SAM to BAM conversion"
+log "STEP 7: SAM to BAM"
 
 samtools view -Sb results/alignment/aligned.sam > results/alignment/aligned.bam
 samtools sort results/alignment/aligned.bam -o results/alignment/sorted.bam
@@ -113,19 +127,19 @@ samtools index results/alignment/sorted.bam
 rm -f results/alignment/aligned.sam results/alignment/aligned.bam
 
 ############################
-# STEP 7: VARIANT CALLING
+# STEP 8: VARIANT CALLING
 ############################
 
-log "STEP 7: Variant calling"
+log "STEP 8: Variant calling"
 
 bcftools mpileup -f "$reference" results/alignment/sorted.bam | \
 bcftools call -mv -o results/variants/variants.vcf
 
 ############################
-# STEP 8: FILTER VARIANTS
+# STEP 9: FILTER VARIANTS
 ############################
 
-log "STEP 8: Filtering variants"
+log "STEP 9: Filtering variants"
 
 bcftools filter -e 'QUAL<20' results/variants/variants.vcf \
     -Oz -o results/variants/filtered.vcf.gz
@@ -133,10 +147,10 @@ bcftools filter -e 'QUAL<20' results/variants/variants.vcf \
 bcftools index results/variants/filtered.vcf.gz
 
 ############################
-# STEP 9: MUTATION ANALYSIS
+# STEP 10: MUTATION ANALYSIS
 ############################
 
-log "STEP 9: Mutation analysis"
+log "STEP 10: Mutation analysis"
 
 bcftools view results/variants/filtered.vcf.gz | grep -v "^#" | \
 cut -f4,5 | sort | uniq -c > results/reports/mutation_types.txt
@@ -148,22 +162,19 @@ bcftools query -f '%CHROM\t%POS\t%REF\t%ALT\n' \
 results/variants/filtered.vcf.gz > results/reports/variants_table.txt
 
 ############################
-# STEP 10: SNP + INDEL SEPARATION
+# STEP 11: SNP + INDEL SEPARATION
 ############################
 
-log "STEP 10: SNP and INDEL separation"
+log "STEP 11: SNP and INDEL separation"
 
-bcftools view -v snps results/variants/filtered.vcf.gz \
-> results/variants/snps.vcf
-
-bcftools view -v indels results/variants/filtered.vcf.gz \
-> results/variants/indels.vcf
+bcftools view -v snps results/variants/filtered.vcf.gz > results/variants/snps.vcf
+bcftools view -v indels results/variants/filtered.vcf.gz > results/variants/indels.vcf
 
 ############################
-# STEP 11: ANNOTATION
+# STEP 12: ANNOTATION
 ############################
 
-log "STEP 11: Annotation with snpEff"
+log "STEP 12: Annotation with snpEff"
 
 SNPEFF_JAR=$(find "$CONDA_PREFIX/share" -name "snpEff.jar" | head -n 1)
 
@@ -171,10 +182,10 @@ java -Xmx4g -jar "$SNPEFF_JAR" GRCh38.86 \
 results/variants/filtered.vcf.gz > results/annotation/annotated.vcf
 
 ############################
-# STEP 12: SUMMARY REPORT
+# STEP 13: SUMMARY
 ############################
 
-log "STEP 12: Generating summary report"
+log "STEP 13: Generating summary"
 
 echo "Missense: $(grep -c missense_variant results/annotation/annotated.vcf)" \
 > results/reports/final_summary.txt
@@ -188,6 +199,5 @@ echo "Intergenic: $(grep -c intergenic_region results/annotation/annotated.vcf)"
 ############################
 # DONE
 ############################
-
 log "Pipeline completed successfully"
 
